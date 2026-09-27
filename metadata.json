@@ -1,0 +1,8 @@
+{
+  "name": "PTIT Career Hub",
+  "description": "Nền tảng định hướng nghề nghiệp, việc làm, lộ trình học tập và tạo CV AI dành cho sinh viên PTIT.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

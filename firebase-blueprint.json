@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "Job": {
+      "title": "Job",
+      "description": "Enterprise job and internship opportunities for PTIT students.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the job posting" },
+        "title": { "type": "string", "description": "Position title" },
+        "companyName": { "type": "string", "description": "Hiring enterprise name" },
+        "companyLogo": { "type": "string", "description": "Logo URL" },
+        "location": { "type": "string", "description": "Office or remote work location" },
+        "employmentType": { "type": "string", "description": "Internship, Trainee, Full-time, etc." },
+        "salaryText": { "type": "string", "description": "Salary compensation range text" },
+        "description": { "type": "string", "description": "Role overview and responsibilities" },
+        "requirements": { "type": "string", "description": "JSON string or array of candidate requirements" },
+        "benefits": { "type": "string", "description": "JSON string or array of compensation benefits" },
+        "majorTags": { "type": "string", "description": "Matching PTIT academic majors" },
+        "skillTags": { "type": "string", "description": "Required and preferred skills" },
+        "careerTendencies": { "type": "string", "description": "Career Check tendency codes (CR, AN, OP, CO)" },
+        "suitableAcademicYears": { "type": "string", "description": "Target academic years (Năm 2, Năm 3, Năm 4, Đã tốt nghiệp)" },
+        "careerCategory": { "type": "string", "description": "Industry category (Marketing, E-commerce, Data, Business, Tech)" },
+        "publishedAt": { "type": "string", "description": "Date published (YYYY-MM-DD)" },
+        "expiresAt": { "type": "string", "description": "Application deadline (YYYY-MM-DD)" },
+        "sourceName": { "type": "string", "description": "Name of recruitment portal" },
+        "sourceUrl": { "type": "string", "description": "Official job post link" },
+        "applyUrl": { "type": "string", "description": "Direct application URL" },
+        "verified": { "type": "string", "description": "Partner verification status" },
+        "status": { "type": "string", "description": "Status (active, expired, hidden)" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp" }
+      },
+      "required": ["title", "companyName", "location", "description", "publishedAt", "expiresAt", "sourceUrl", "applyUrl", "status"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "Career workshops, job fairs, and enterprise networking events for PTIT students.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Event ID" },
+        "title": { "type": "string", "description": "Event title" },
+        "organizer": { "type": "string", "description": "Organizer name" },
+        "location": { "type": "string", "description": "Event venue or online link" },
+        "date": { "type": "string", "description": "Event date" },
+        "time": { "type": "string", "description": "Event time" },
+        "description": { "type": "string", "description": "Event description" },
+        "registrationUrl": { "type": "string", "description": "Registration URL" },
+        "status": { "type": "string", "description": "active, expired, or hidden" }
+      },
+      "required": ["title", "organizer", "date", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "PTIT student and admin user accounts and career check records.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique user ID" },
+        "displayName": { "type": "string", "description": "Student display name" },
+        "email": { "type": "string", "description": "Email address" },
+        "role": { "type": "string", "description": "student or admin" },
+        "major": { "type": "string", "description": "Major field of study" },
+        "academicYear": { "type": "string", "description": "Academic year" },
+        "careerCheckCompleted": { "type": "boolean", "description": "Career assessment completion state" }
+      },
+      "required": ["userId", "displayName", "role"]
+    },
+    "Interaction": {
+      "title": "Interaction",
+      "description": "User interaction and telemetry logs for analytics.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Log entry ID" },
+        "type": { "type": "string", "description": "Interaction event type" },
+        "timestamp": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["id", "type", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/jobs/{jobId}": {
+      "schema": "Job",
+      "description": "Recruitment postings and internship listings for PTIT students"
+    },
+    "/events/{eventId}": {
+      "schema": "Event",
+      "description": "Career events, workshops, and enterprise fairs"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Student profile data and career check assessments"
+    },
+    "/interactions/{interactionId}": {
+      "schema": "Interaction",
+      "description": "Engagement logs and analytics telemetry"
+    }
+  }
+}

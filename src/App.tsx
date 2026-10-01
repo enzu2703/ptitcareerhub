@@ -26,7 +26,6 @@ import { MyTasksView } from './components/views/MyTasksView';
 import { StudentDashboardView } from './components/views/StudentDashboardView';
 import { SavedItemsView } from './components/views/SavedItemsView';
 import { AdminDashboardView } from './components/views/AdminDashboardView';
-import { FeedbackView } from './components/views/FeedbackView';
 import { PrivacyPolicyView } from './components/views/PrivacyPolicyView';
 import { TermsOfServiceView } from './components/views/TermsOfServiceView';
 import { ToastContainer } from './components/ToastContainer';

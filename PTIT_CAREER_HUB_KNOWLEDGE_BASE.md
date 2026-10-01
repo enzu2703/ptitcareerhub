@@ -29,7 +29,7 @@
 
 ### 1.1. Sứ mệnh Nền tảng
 PTIT Career Hub là nền tảng định hướng nghề nghiệp, phát triển kỹ năng và kết nối việc làm chuyên biệt dành riêng cho sinh viên Học viện Công nghệ Bưu chính Viễn thông (PTIT). Nền tảng kết nối chặt chẽ giữa 3 đỉnh tam giác:
-1. **Khung chương trình đào tạo chính quy** của Học viện (Marketing, Truyền thông đa phương tiện, Thương mại điện tử, CNTT, Kinh tế số, QTKD).
+1. **Khung chương trình đào tạo chính quy Khối Kinh tế PTIT Phía Bắc** (Marketing, Công nghệ tài chính (Fintech), Quản trị kinh doanh, Kế toán, Thương mại điện tử, Quan hệ công chúng (PR), Logistics và Quản lý chuỗi cung ứng).
 2. **Năng lực thực tế & Thiên hướng tự nhiên của sinh viên** (đo lường qua Career Check và hồ sơ cá nhân).
 3. **Nhu cầu tuyển dụng thực tế từ mạng lưới doanh nghiệp đối tác** (Viettel, VNPT, FPT, Shopee, VNG, Techcombank, Tiki, VNPAY,...).
 
@@ -52,14 +52,14 @@ $$\text{EntryYear} = \text{AcademicStartYear} - (\text{YearNum} - 1)$$
 - **Năm 2**: Khóa D + (2 số cuối của `academicStartYear - 1`) (VD năm học 2026: Khóa D25 - Nhập học 2025).
 - **Năm 1**: Khóa D + (2 số cuối của `academicStartYear`) (VD năm học 2026: Khóa D26 - Nhập học 2026).
 
-### 2.2. Danh mục Ngành học Chính quy liên kết trong Hệ thống
-1. **Marketing & Truyền thông số**: Trọng tâm Marketing số, Sáng tạo nội dung, Hành vi khách hàng số, Quảng cáo trực tuyến.
-2. **Truyền thông đa phương tiện**: Thiết kế hình ảnh, sản xuất video, kịch bản truyền thông, quản trị mạng xã hội.
-3. **Thương mại điện tử**: Vận hành gian hàng sàn (Shopee, TikTok Shop, Lazada), tối ưu chuỗi cung ứng số, thanh toán điện tử.
-4. **Kinh tế số & Quản trị kinh doanh**: Mô hình kinh doanh số, đàm phán thương mại B2B, quản trị dự án, khởi nghiệp công nghệ.
-5. **Công nghệ thông tin / Kỹ thuật Phần mềm**: Lập trình Fullstack, ứng dụng di động, giải thuật, kiến trúc hệ thống.
-6. **Khoa học Dữ liệu & Trí tuệ Nhân tạo**: Phân tích dữ liệu, Machine Learning, Business Intelligence (BI), SQL & Python.
-7. **Công nghệ Tài chính (Fintech) & Kế toán**: Phân tích dữ liệu tài chính, thanh toán số, ngân hàng số.
+### 2.2. Danh mục 7 Ngành Khối Kinh tế PTIT Phía Bắc Chuẩn hóa
+1. **Marketing**: Trọng tâm Marketing số, Sáng tạo nội dung, Hành vi khách hàng số, Quảng cáo trực tuyến đa kênh (Meta/Google Ads, SEO, Content Marketing).
+2. **Công nghệ tài chính (Fintech)**: Phân tích dữ liệu tài chính, thanh toán số, ngân hàng số, bảo mật giao dịch số, mô hình định giá và phân tích rủi ro tài chính.
+3. **Quản trị kinh doanh**: Mô hình kinh doanh thực chiến, đàm phán thương mại B2B, quản trị phễu bán hàng (Sales/CRM), quản trị dự án và chiến lược doanh nghiệp.
+4. **Kế toán**: Kế toán doanh nghiệp, kế toán thuế, kiểm toán nội bộ, phân tích báo cáo tài chính và ứng dụng phần mềm kế toán số (MISA, FAST, ERP).
+5. **Thương mại điện tử**: Vận hành gian hàng sàn (Shopee, TikTok Shop, Lazada), tối ưu tỷ lệ chuyển đổi (CRO), thanh toán điện tử và tiếp thị liên kết (Affiliate).
+6. **Quan hệ công chúng (PR)**: Quản trị hình ảnh tổ chức, quan hệ báo chí, quản trị khủng hoảng truyền thông, tổ chức sự kiện và xây dựng thương hiệu doanh nghiệp.
+7. **Logistics và Quản lý chuỗi cung ứng**: Quản trị kho bãi & vận chuyển số, tối ưu hóa chuỗi cung ứng, điều phối đơn hàng đa kênh, thủ tục hải quan và logistics quốc tế.
 
 ---
 

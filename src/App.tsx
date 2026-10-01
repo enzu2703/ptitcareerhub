@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ScreenView, UserAuth, NotificationItem, TargetJob, CareerEvent, UserProfileState } from './types';
 import { NOTIFICATIONS_DATA, TARGET_JOBS, CAREER_EVENTS } from './data/mockData';
-import { loadUserProfile, saveUserProfile } from './services/userService';
+import { loadUserProfile, saveUserProfile, loadAuthSession, saveAuthSession, clearAuthSession } from './services/userService';
 import { getActiveJobs } from './services/jobs/jobService';
+import { getActiveEvents } from './services/events/eventService';
 import { trackEvent } from './utils/analytics';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
@@ -25,6 +26,11 @@ import { MyTasksView } from './components/views/MyTasksView';
 import { StudentDashboardView } from './components/views/StudentDashboardView';
 import { SavedItemsView } from './components/views/SavedItemsView';
 import { AdminDashboardView } from './components/views/AdminDashboardView';
+import { FeedbackView } from './components/views/FeedbackView';
+import { PrivacyPolicyView } from './components/views/PrivacyPolicyView';
+import { TermsOfServiceView } from './components/views/TermsOfServiceView';
+import { ToastContainer } from './components/ToastContainer';
+import { showToast } from './utils/toast';
 import {
   Compass,
   Sparkles,
@@ -44,10 +50,76 @@ export function App() {
 
   // Centralized User Profile State with persistence
   const [userProfile, setUserProfile] = useState<UserProfileState>(() => loadUserProfile());
+
+  // Authentication State with localStorage session persistence
+  const [auth, setAuth] = useState<UserAuth>(() => {
+    const saved = loadAuthSession();
+    const profile = loadUserProfile();
+    if (saved && saved.isLoggedIn) {
+      return {
+        ...saved,
+        name: profile?.displayName || saved.name || 'Sinh viên PTIT',
+        email: profile?.email || saved.email || 'sinhvien@ptit.edu.vn',
+        major: profile?.major || saved.major || '',
+        year: profile?.academicYear || saved.year || 'Chưa cập nhật',
+        birthYear: profile?.birthYear || saved.birthYear || '',
+      };
+    }
+    // If user has already completed onboarding in previous sessions, auto-restore
+    if (profile?.onboardingCompleted && profile?.displayName) {
+      const restored: UserAuth = {
+        isLoggedIn: true,
+        name: profile.displayName,
+        email: profile.email || 'sinhvien@ptit.edu.vn',
+        avatarLetter: profile.displayName[0]?.toUpperCase() || 'P',
+        studentId: 'B22DCMK120',
+        major: profile.major || '',
+        year: profile.academicYear || 'Chưa cập nhật',
+        birthYear: profile.birthYear || '',
+        provider: 'google',
+      };
+      saveAuthSession(restored);
+      return restored;
+    }
+    // Brand new visitor: Not logged in
+    return {
+      isLoggedIn: false,
+      name: '',
+      email: '',
+      avatarLetter: 'P',
+      studentId: '',
+      major: '',
+      year: '',
+      birthYear: '',
+    };
+  });
+
+  // Modal Yêu cầu Đăng nhập khi sinh viên mới truy cập web
+  const [loginModalOpen, setLoginModalOpen] = useState<boolean>(() => {
+    const saved = loadAuthSession();
+    const profile = loadUserProfile();
+    // Prompt login on first visit if user is not logged in and hasn't onboarded
+    if (!saved?.isLoggedIn && (!profile?.onboardingCompleted || !profile?.displayName)) {
+      return true;
+    }
+    return false;
+  });
+
   const [showProfileSetupModal, setShowProfileSetupModal] = useState<boolean>(() => {
     try {
+      const savedAuth = loadAuthSession();
       const initial = loadUserProfile();
-      return !initial?.onboardingCompleted;
+      const hasCompletedRequiredInfo = Boolean(
+        initial?.onboardingCompleted &&
+        initial?.displayName &&
+        initial.displayName.trim().length >= 2 &&
+        initial?.birthYear &&
+        initial?.major &&
+        initial?.academicYear &&
+        initial?.careerGoal
+      );
+      // Only show onboarding if user is logged in and info is incomplete
+      return Boolean(savedAuth?.isLoggedIn && !hasCompletedRequiredInfo);
     } catch {
       return false;
     }
@@ -85,7 +157,7 @@ export function App() {
       case 'events':
         return '/events';
       case 'cv-builder':
-        return '/cv-analysis';
+        return '/ai-cv';
       case 'my-tasks':
         return '/todo';
       case 'admin':
@@ -101,6 +173,12 @@ export function App() {
         return '/admin/analytics';
       case 'admin-login':
         return '/admin-login';
+      case 'feedback':
+        return '/feedback';
+      case 'privacy':
+        return '/privacy';
+      case 'terms':
+        return '/terms';
       default:
         return '/';
     }
@@ -114,8 +192,11 @@ export function App() {
     if (clean === '/career-map') return 'roadmap';
     if (clean === '/jobs') return 'jobs';
     if (clean === '/events') return 'events';
-    if (clean === '/cv-analysis') return 'cv-builder';
+    if (clean === '/ai-cv' || clean === '/cv-analysis') return 'cv-builder';
     if (clean === '/todo') return 'my-tasks';
+    if (clean === '/feedback') return 'feedback';
+    if (clean === '/privacy') return 'privacy';
+    if (clean === '/terms') return 'terms';
     if (clean === '/admin' || clean === '/admin/dashboard') return 'admin-dashboard';
     if (clean === '/admin/jobs') return 'admin-jobs';
     if (clean === '/admin/events') return 'admin-events';
@@ -191,12 +272,20 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [isAdminAuthenticated, userProfile?.role]);
 
-  // Sync with JobService
+  // Sync with JobService & EventService on mount
   useEffect(() => {
     getActiveJobs(true)
       .then((active) => {
         if (active && active.length > 0) {
           setJobs(active);
+        }
+      })
+      .catch(() => {});
+
+    getActiveEvents(true)
+      .then((activeEvents) => {
+        if (activeEvents && activeEvents.length > 0) {
+          setEvents(activeEvents);
         }
       })
       .catch(() => {});
@@ -234,22 +323,48 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Authentication State
-  const [auth, setAuth] = useState<UserAuth>(() => {
-    const profile = loadUserProfile();
-    const displayName = profile?.displayName || 'Minh';
-    return {
-      isLoggedIn: true,
-      name: displayName,
-      email: profile?.email || 'minh.ptit@student.ptit.edu.vn',
-      avatarLetter: displayName[0]?.toUpperCase() || 'M',
-      studentId: 'B22DCMK120',
-      major: profile?.major || 'Marketing & Truyền thông Đa phương tiện',
-      year: profile?.academicYear || 'Năm 3',
-    };
-  });
-  const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [orientationModalOpen, setOrientationModalOpen] = useState(false);
+
+  // Authentication Handlers
+  const handleLoginSuccess = (authUser: UserAuth) => {
+    setAuth(authUser);
+    saveAuthSession(authUser);
+    setLoginModalOpen(false);
+
+    // Sync auth info with profile
+    const currentProfile = loadUserProfile();
+    const updatedProfile = saveUserProfile({
+      displayName: currentProfile.displayName || authUser.name,
+      email: currentProfile.email || authUser.email,
+    });
+    setUserProfile(updatedProfile);
+
+    // If profile onboarding is incomplete, guide new user to profile setup
+    const isProfileComplete = Boolean(
+      updatedProfile.onboardingCompleted &&
+      updatedProfile.displayName &&
+      updatedProfile.displayName.trim().length >= 2 &&
+      updatedProfile.birthYear &&
+      updatedProfile.major &&
+      updatedProfile.academicYear &&
+      updatedProfile.careerGoal
+    );
+
+    if (!isProfileComplete) {
+      setShowProfileSetupModal(true);
+    }
+  };
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setAuth({
+      isLoggedIn: false,
+      name: '',
+      email: '',
+      avatarLetter: 'P',
+    });
+    setLoginModalOpen(true);
+  };
 
   // Notifications State
   const [notifications, setNotifications] = useState<NotificationItem[]>(NOTIFICATIONS_DATA);
@@ -276,15 +391,22 @@ export function App() {
     const merged = saveUserProfile(updated);
     setUserProfile(merged);
     setShowProfileSetupModal(false);
-    const displayName = merged?.displayName || 'Minh';
-    setAuth((prev) => ({
-      ...prev,
+    const displayName = merged?.displayName || 'Người dùng';
+    const updatedAuth: UserAuth = {
+      ...auth,
+      isLoggedIn: true,
       name: displayName,
-      major: merged?.major || prev.major,
-      year: merged?.academicYear || prev.year,
-      avatarLetter: displayName[0]?.toUpperCase() || 'M',
-    }));
+      major: merged?.major || auth.major,
+      year: merged?.academicYear || auth.year,
+      birthYear: merged?.birthYear || auth.birthYear,
+      avatarLetter: displayName[0]?.toUpperCase() || 'P',
+    };
+    setAuth(updatedAuth);
+    saveAuthSession(updatedAuth);
+    showToast('Đã lưu thành công hồ sơ cá nhân!', 'success');
     trackEvent('onboarding_complete', {
+      displayName: merged.displayName,
+      birthYear: merged.birthYear,
       major: merged.major,
       academicYear: merged.academicYear,
       careerGoal: merged.careerGoal,
@@ -324,19 +446,14 @@ export function App() {
         onNavigate={handleNavigate}
         auth={auth}
         onOpenLogin={() => setLoginModalOpen(true)}
-        onLogout={() =>
-          setAuth({
-            isLoggedIn: false,
-            name: '',
-            email: '',
-            avatarLetter: '',
-          })
-        }
+        onLogout={handleLogout}
         notifications={notifications}
         onMarkNotificationRead={handleMarkNotificationRead}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         onOpenOrientationModal={() => setOrientationModalOpen(true)}
+        userProfile={userProfile}
+        onEditProfile={() => setShowProfileSetupModal(true)}
       />
 
       {/* Main Screen Router */}
@@ -385,10 +502,14 @@ export function App() {
           <RoadmapView
             onNavigate={handleNavigate}
             selectedCareerTitle={userProfile.careerDirection || selectedCareerTitle}
-            onOpenOrientationModal={() => setOrientationModalOpen(true)}
+            onOpenOrientationModal={() => setShowProfileSetupModal(true)}
+            onEditProfile={() => setShowProfileSetupModal(true)}
             userProfile={userProfile}
             onUpdateUserProfile={handleUpdateUserProfile}
             onSelectJobDetail={handleSelectJobDetail}
+            allJobs={jobs}
+            events={events}
+            onSelectEventDetail={handleSelectEventDetail}
           />
         )}
 
@@ -495,6 +616,7 @@ export function App() {
             auth={auth}
             jobs={jobs}
             events={events}
+            userProfile={userProfile}
             onSelectJobDetail={handleSelectJobDetail}
             onSelectEventDetail={handleSelectEventDetail}
           />
@@ -516,6 +638,25 @@ export function App() {
           />
         )}
 
+        {currentView === 'feedback' && (
+          <FeedbackView
+            onNavigate={handleNavigate}
+            userProfile={userProfile}
+          />
+        )}
+
+        {currentView === 'privacy' && (
+          <PrivacyPolicyView
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {currentView === 'terms' && (
+          <TermsOfServiceView
+            onNavigate={handleNavigate}
+          />
+        )}
+
         {currentView === 'admin-login' && (
           <AdminLoginView
             onNavigate={handleNavigate}
@@ -532,15 +673,11 @@ export function App() {
             <AdminDashboardView
               onNavigate={handleNavigate}
               initialTab={
-                currentView === 'admin-jobs'
-                  ? 'jobs'
-                  : currentView === 'admin-events'
+                currentView === 'admin-events'
                   ? 'events'
-                  : currentView === 'admin-users'
-                  ? 'users'
                   : currentView === 'admin-analytics'
                   ? 'analytics'
-                  : 'overview'
+                  : 'jobs'
               }
               onLogoutAdmin={() => {
                 setIsAdminAuthenticated(false);
@@ -548,6 +685,8 @@ export function App() {
                 setUserProfile(updated);
                 handleNavigate('home');
               }}
+              onUpdateJobs={(updatedJobs) => setJobs(updatedJobs)}
+              onUpdateEvents={(updatedEvents) => setEvents(updatedEvents)}
             />
           ) : (
             <HomeView
@@ -599,7 +738,20 @@ export function App() {
               <span>Việc làm</span>
             </button>
 
-            {/* 3. Lộ trình */}
+            {/* 3. AI CV */}
+            <button
+              onClick={() => handleNavigate('cv-builder')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                currentView === 'cv-builder'
+                  ? 'bg-[#B90013] text-white shadow-xs'
+                  : 'hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>AI CV</span>
+            </button>
+
+            {/* 4. Career Map */}
             <button
               onClick={() => handleNavigate('roadmap')}
               className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -612,7 +764,7 @@ export function App() {
               <span>Career Map</span>
             </button>
 
-            {/* 4. My Tasks */}
+            {/* 5. My Tasks */}
             <button
               onClick={() => handleNavigate('my-tasks')}
               className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -656,22 +808,50 @@ export function App() {
         initialProfile={userProfile}
         onSave={handleSaveProfile}
         onComplete={handleSaveProfile}
-        onClose={() => setShowProfileSetupModal(false)}
-        onSkip={() => setShowProfileSetupModal(false)}
+        onClose={() => {
+          const isComplete = Boolean(
+            userProfile?.onboardingCompleted &&
+            userProfile?.displayName &&
+            userProfile.displayName.trim().length >= 2 &&
+            userProfile?.birthYear &&
+            userProfile?.major &&
+            userProfile?.academicYear &&
+            userProfile?.careerGoal
+          );
+          if (isComplete) {
+            setShowProfileSetupModal(false);
+          }
+        }}
+        onSkip={() => {
+          const isComplete = Boolean(
+            userProfile?.onboardingCompleted &&
+            userProfile?.displayName &&
+            userProfile.displayName.trim().length >= 2 &&
+            userProfile?.birthYear &&
+            userProfile?.major &&
+            userProfile?.academicYear &&
+            userProfile?.careerGoal
+          );
+          if (isComplete) {
+            setShowProfileSetupModal(false);
+          }
+        }}
+        isForced={
+          !userProfile?.onboardingCompleted ||
+          !userProfile?.displayName ||
+          userProfile.displayName.trim().length < 2 ||
+          !userProfile?.birthYear ||
+          !userProfile?.major ||
+          !userProfile?.academicYear ||
+          !userProfile?.careerGoal
+        }
       />
 
       {/* Student Login Modal */}
       <LoginModal
         isOpen={loginModalOpen}
         onClose={() => setLoginModalOpen(false)}
-        onLoginSuccess={(newAuth) => {
-          setAuth(newAuth);
-          setLoginModalOpen(false);
-          // If profile onboarding not complete, guide new user to profile setup
-          if (!userProfile.onboardingCompleted) {
-            setShowProfileSetupModal(true);
-          }
-        }}
+        onLoginSuccess={handleLoginSuccess}
       />
 
       {/* 4-Step Orientation Onboarding Modal for PTIT Students */}
@@ -683,14 +863,23 @@ export function App() {
           if (profileData.careerGoal) {
             setSelectedCareerTitle(profileData.careerGoal);
           }
+          const updated = saveUserProfile({
+            careerGoal: profileData.careerGoal,
+            ...(profileData.major ? { major: profileData.major } : {}),
+            ...((profileData as any).academicYear ? { academicYear: (profileData as any).academicYear } : {}),
+          });
+          setUserProfile(updated);
           if (profileData.currentLevel && auth.isLoggedIn) {
             setAuth((prev) => ({
               ...prev,
-              year: profileData.currentLevel || prev.year,
+              year: (profileData as any).academicYear || profileData.currentLevel || prev.year,
             }));
           }
         }}
       />
+
+      {/* Global Toast Notifications Container */}
+      <ToastContainer />
     </div>
   );
 }

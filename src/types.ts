@@ -22,7 +22,10 @@ export type ScreenView =
   | 'admin-jobs'
   | 'admin-events'
   | 'admin-users'
-  | 'admin-analytics';
+  | 'admin-analytics'
+  | 'feedback'
+  | 'privacy'
+  | 'terms';
 
 export type SearchCategory = 'all' | 'career' | 'job' | 'skill' | 'event';
 
@@ -97,6 +100,7 @@ export interface CareerCheckResult {
 export interface UserProfileState {
   userId: string;
   displayName: string;
+  birthYear?: string;
   email: string;
   role?: 'student' | 'admin';
   major: string;
@@ -138,6 +142,7 @@ export interface UserAuth {
   studentId?: string;
   major?: string;
   year?: string;
+  birthYear?: string;
   provider?: 'google' | 'outlook' | 'demo';
 }
 
@@ -441,4 +446,54 @@ export interface FirestoreEvent {
   verified: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Danh sách 7 ngành Khối Kinh tế PTIT Phía Bắc chuẩn hóa
+ */
+export const PTIT_MAJORS = [
+  'Marketing',
+  'Công nghệ tài chính (Fintech)',
+  'Quản trị kinh doanh',
+  'Kế toán',
+  'Thương mại điện tử',
+  'Quan hệ công chúng (PR)',
+  'Logistics và Quản lý chuỗi cung ứng',
+] as const;
+
+export type PtitMajor = (typeof PTIT_MAJORS)[number];
+
+/**
+ * Sanitize any legacy or outdated major strings to the new canonical 7 majors list,
+ * returning empty string if not matched or unselected.
+ */
+export function sanitizePtitMajor(major?: string | null): string {
+  if (!major) return '';
+  const trimmed = major.trim();
+  if ((PTIT_MAJORS as readonly string[]).includes(trimmed)) return trimmed;
+
+  const lower = trimmed.toLowerCase();
+  // Strictly reject any non-economic PTIT majors or removed majors
+  if (
+    lower.includes('truyền thông đa phương tiện') ||
+    lower.includes('kinh tế số') ||
+    lower.includes('kinh doanh số') ||
+    lower.includes('công nghệ thông tin') ||
+    lower.includes('khoa học máy tính') ||
+    lower.includes('kỹ thuật phần mềm') ||
+    lower.includes('an toàn thông tin') ||
+    lower.includes('viễn thông')
+  ) {
+    return '';
+  }
+
+  if (lower.includes('quan hệ công chúng') || lower.includes('pr')) return 'Quan hệ công chúng (PR)';
+  if (lower.includes('logistics') || lower.includes('chuỗi cung ứng')) return 'Logistics và Quản lý chuỗi cung ứng';
+  if (lower.includes('fintech') || lower.includes('công nghệ tài chính') || lower.includes('tài chính công nghệ')) return 'Công nghệ tài chính (Fintech)';
+  if (lower.includes('quản trị kinh doanh') || lower.includes('qtkd')) return 'Quản trị kinh doanh';
+  if (lower.includes('kế toán') || lower.includes('kiểm toán')) return 'Kế toán';
+  if (lower.includes('thương mại điện tử') || lower.includes('tmđt') || lower.includes('e-commerce')) return 'Thương mại điện tử';
+  if (lower.includes('marketing') || lower.includes('tiếp thị')) return 'Marketing';
+
+  return '';
 }

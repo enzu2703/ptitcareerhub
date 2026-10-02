@@ -46,11 +46,12 @@ async function callGeminiWithFallback(contents: any): Promise<string> {
     throw new Error('Gemini integration requires GEMINI_API_KEY to be configured in environment secrets.');
   }
 
-  const models = ['gemini-3.8-flash', 'gemini-flash-latest'];
+  // Use models with high quota availability and resilience against 429 quota exhaustion
+  const models = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.1-pro-preview'];
   let lastError: any = null;
 
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const response = await aiClient.models.generateContent({
           model,
@@ -64,9 +65,14 @@ async function callGeminiWithFallback(contents: any): Promise<string> {
         if (text) return text;
       } catch (err: any) {
         lastError = err;
+        const msg = String(err?.message || '');
         const status = err.status || err.statusCode;
+        // If quota exceeded or resource exhausted on this model, switch immediately to next model
+        if (msg.includes('Quota exceeded') || msg.includes('RESOURCE_EXHAUSTED')) {
+          break;
+        }
         if (status === 503 || status === 429) {
-          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
           continue;
         }
         break;
@@ -85,10 +91,10 @@ app.get('/api/gemini/status', (_req: Request, res: Response) => {
   res.json({
     status: hasKey ? 'connected' : 'missing_key',
     hasKey,
-    primaryModel: 'gemini-3.8-flash',
+    primaryModel: 'gemini-3.1-flash-lite',
     fallbackModel: 'gemini-flash-latest',
     message: hasKey
-      ? 'Gemini 3.8 Flash is ready for real CV and JD analysis.'
+      ? 'Gemini 3.1 Flash Lite is ready for real CV and JD analysis.'
       : 'Gemini integration requires GEMINI_API_KEY to be configured.',
   });
 });
@@ -262,9 +268,10 @@ app.post('/api/gemini/career-gap-analysis', async (req: Request, res: Response) 
   try {
     const { userProfile, targetJob, events, cvData, isRegenerate, regenerationFocus } = req.body;
 
-    if (!aiClient) {
-      return res.status(503).json({
-        error: 'Gemini integration requires GEMINI_API_KEY to be configured in environment secrets.',
+    if (!targetJob) {
+      return res.status(400).json({
+        success: false,
+        error: 'Chưa có công việc mục tiêu (JD mục tiêu). Lộ trình 3 cột mốc yêu cầu chọn công việc mục tiêu để Cột mốc 3 làm đích đến.',
       });
     }
 
@@ -280,10 +287,10 @@ app.post('/api/gemini/career-gap-analysis', async (req: Request, res: Response) 
     const isRegen = Boolean(isRegenerate);
     const focusStyle = regenerationFocus || (isRegen ? 'Chuyên sâu Năng lực Thực chiến & Đột phá' : 'Cân bằng Chuẩn hóa');
 
-    let cvContextText = 'Chưa có file CV tải lên (sử dụng thông tin hồ sơ cơ bản).';
+    let cvContextText = 'Sinh viên chưa tải file CV. Phân tích dựa trên thông tin hồ sơ sinh viên PTIT (chuyên ngành, năm học, mục tiêu).';
     if (cvData) {
       const cvSkills = [
-        ...(Array.isArray(cvData.skills) ? cvData.skills.map((s: any) => s.name || s) : []),
+        ...(Array.isArray(cvData.skills) ? cvData.skills.map((s: any) => (typeof s === 'string' ? s : s.name)) : []),
         ...(Array.isArray(cvData.skills?.hardSkills) ? cvData.skills.hardSkills : []),
         ...(Array.isArray(cvData.skills?.softSkills) ? cvData.skills.softSkills : []),
       ].filter(Boolean);
@@ -294,36 +301,52 @@ app.post('/api/gemini/career-gap-analysis', async (req: Request, res: Response) 
 
       cvContextText = `
 - Họ tên ứng viên trên CV: ${cvData.candidate?.fullName || cvData.candidateInfo?.fullName || userProfile?.displayName || 'Sinh viên PTIT'}
-- Kỹ năng ứng viên ĐÃ CÓ trong CV: ${cvSkills.length > 0 ? cvSkills.join(', ') : 'Canva, Tin học văn phòng, Giao tiếp'}
-- Kinh nghiệm / Dự án đã có: ${cvExps || 'Dự án môn học, hoạt động câu lạc bộ'}
+- Kỹ năng ứng viên ĐÃ CÓ trong CV: ${cvSkills.length > 0 ? cvSkills.join(', ') : 'Chưa liệt kê cụ thể'}
+- Kinh nghiệm / Dự án đã có: ${cvExps || 'Dự án môn học, hoạt động ngoại khóa'}
 - Học vấn: ${cvData.education?.[0]?.school || 'Học viện Công nghệ Bưu chính Viễn thông (PTIT)'} - Ngành: ${cvData.education?.[0]?.major || userProfile?.major || 'Khối ngành Kinh tế PTIT'}`;
     }
 
-    const selectedMajorName = userProfile?.major?.trim() || 'Chưa chọn chuyên ngành cụ thể';
+    const selectedMajorName = userProfile?.major?.trim() || 'Khối ngành Kinh tế PTIT';
 
-    const targetJobContext = targetJob
-      ? `=== VỊ TRÍ MỤC TIÊU (JD DOANH NGHIỆP) ===
+    const targetJobContext = `=== VỊ TRÍ MỤC TIÊU (JD DOANH NGHIỆP - CỘT MỐC 3) ===
 - Vị trí: ${targetJob.title}
 - Doanh nghiệp: ${targetJob.company}
-- Yêu cầu kỹ năng: ${(targetJob.requiredSkills || []).join(', ')}
+- Địa điểm: ${targetJob.location || 'Hà Nội'}
+- Mức lương: ${targetJob.salary || 'Thỏa thuận'}
+- Yêu cầu kỹ năng: ${(targetJob.requiredSkills || targetJob.skillTags || []).join(', ')}
 - Mô tả công việc: ${targetJob.description || ''}
-- Ngành học của sinh viên: ${selectedMajorName}`
-      : `=== MỤC TIÊU THEO NGÀNH HỌC ===
-- Ngành đào tạo chuẩn PTIT: ${selectedMajorName}
-- Hướng sự nghiệp: ${userProfile?.careerGoal || 'Phát triển chuyên môn chuẩn đầu ra PTIT'}`;
+- Ngành học của sinh viên: ${selectedMajorName}`;
+
+    if (!aiClient) {
+      throw new Error('Chưa cấu hình GEMINI_API_KEY, chuyển sang bộ máy tạo lộ trình nội bộ PTIT.');
+    }
 
     const prompt = `Bạn là Chuyên gia Cố vấn Hướng nghiệp Cao cấp của Học viện Công nghệ Bưu chính Viễn thông (PTIT).
-Nhiệm vụ của bạn: Tạo lập hoặc làm mới một Lộ trình Nghề nghiệp (Career Map) 3 Cột mốc hoàn toàn cá nhân hóa cho sinh viên PTIT dựa trên đồng bộ giữa HỒ SƠ NGƯỜI DÙNG, DỮ LIỆU CV ĐÃ TẢI LÊN và VỊ TRÍ MỤC TIÊU.
+Nhiệm vụ của bạn: Tạo lập hoặc làm mới một Lộ trình Nghề nghiệp (Career Map) 3 Cột mốc hoàn toàn cá nhân hóa cho sinh viên PTIT.
+
+=== QUY TẮC CỐT LÕI CỦA LỘ TRÌNH 3 CỘT MỐC (BẮT BUỘC) ===
+1. CỘT MỐC 3 (ĐÍCH ĐẾN): LUÔN LUÔN LÀ CÔNG VIỆC MỤC TIÊU (JD MỤC TIÊU): "${targetJob.title}" tại "${targetJob.company}".
+   - roleTitle: "${targetJob.title}"
+   - badgeLabel: "🎯 JD Mục tiêu • ${targetJob.company}"
+   - keyFocus: "Đích đến mục tiêu bạn đang hướng tới tại ${targetJob.company} - Hoàn thiện hồ sơ, portfolio và năng lực phỏng vấn tuyển dụng"
+   - practicalTasks: Các nhiệm vụ ứng tuyển, chuẩn bị hồ sơ và phỏng vấn cho chính vị trí này tại ${targetJob.company}.
+2. CỘT MỐC 1 (KHỞI ĐỘNG & NỀN TẢNG):
+   - Phân tích kỹ năng/kinh nghiệm sinh viên ĐÃ CÓ (từ file CV hoặc hồ sơ) đối chiếu với yêu cầu của JD mục tiêu.
+   - Đề xuất một vai trò khởi đầu / nền tảng (Entry-level, CTV, hoặc Nền tảng chuyên môn) phù hợp làm bước đệm vững chắc đầu tiên.
+   - Làm mới toàn bộ nội dung chính (roleTitle, keyFocus) và 2-3 practicalTasks hành động thực tế, cụ thể, bám sát các kiến thức và công cụ nền tảng cần trang bị.
+3. CỘT MỐC 2 (TĂNG TỐC & THỰC CHIẾN):
+   - Đề xuất một vai trò thực tập sinh / nhân viên chuyên môn (Intern, Fresher, Project Specialist) sát gần hơn với JD mục tiêu.
+   - Làm mới toàn bộ nội dung chính (roleTitle, keyFocus) và 2-3 practicalTasks hành động thực tế giải quyết bài toán nghiệp vụ doanh nghiệp, thực hiện dự án thực tế sát với yêu cầu JD mục tiêu.
 
 === ĐỊNH HƯỚNG LỘ TRÌNH ĐƯỢC YÊU CẦU ===
-- Phong cách / Góc nhìn lộ trình: ${focusStyle}
-- Trạng thái yêu cầu: ${isRegen ? 'Người dùng yêu cầu LÀM MỚI / TẠO LỘ TRÌNH KHÁC BIỆT với góc nhìn chiến lược mới mẻ, chuỗi task sáng tạo hơn.' : 'Lộ trình tối ưu hóa lần đầu.'}
+- Phong cách / Hướng tiếp cận: ${focusStyle}
+- Trạng thái yêu cầu: ${isRegen ? 'Người dùng yêu cầu LÀM MỚI LỘ TRÌNH VỚI AI: làm mới lại toàn bộ nội dung chính và danh sách task của Cột mốc 1 và 2 bám sát JD mục tiêu.' : 'Lộ trình tối ưu hóa lần đầu.'}
 
 === THÔNG TIN HỒ SƠ SINH VIÊN PTIT ===
 - Họ tên: ${userProfile?.displayName || 'Sinh viên PTIT'}
 - Chuyên ngành đào tạo tại PTIT: ${selectedMajorName} (thuộc danh mục 7 ngành Khối Kinh tế PTIT Phía Bắc: Marketing, Công nghệ tài chính (Fintech), Quản trị kinh doanh, Kế toán, Thương mại điện tử, Quan hệ công chúng (PR), Logistics và Quản lý chuỗi cung ứng)
 - Năm học hiện tại: ${userProfile?.academicYear || 'Năm 3'}
-- Mục tiêu kinh nghiệm: ${userProfile?.careerGoal || 'Đang tìm kiếm cơ hội thực tập'}
+- Mục tiêu kinh nghiệm: ${userProfile?.careerGoal || 'Đang tìm kiếm cơ hội thực tập và việc làm'}
 
 === DỮ LIỆU TỪ CV ĐÃ TẢI LÊN ===
 ${cvContextText}
@@ -332,27 +355,21 @@ ${targetJobContext}
 
 ${availableEvents.length > 0 ? `=== DANH SÁCH WORKSHOP / SỰ KIỆN PTIT ĐANG MỞ ===\n${JSON.stringify(availableEvents, null, 2)}` : ''}
 
-=== YÊU CẦU ĐẶC BIỆT ===
-1. ĐỒNG BỘ CHUYÊN NGÀNH KHỐI KINH TẾ PTIT PHÍA BẮC: Bám sát khung chuyên môn ngành "${selectedMajorName}" (thuộc đúng danh mục 7 ngành: Marketing, Công nghệ tài chính (Fintech), Quản trị kinh doanh, Kế toán, Thương mại điện tử, Quan hệ công chúng (PR), Logistics và Quản lý chuỗi cung ứng; tuyệt đối không đưa các chuyên ngành ngoài danh mục này vào lộ trình) để đề xuất 3 Cột mốc và chuỗi nhiệm vụ phù hợp nhất với thị trường lao động thực tế.
-2. ĐỐI CHIẾU VỚI CV: Nhận diện kỹ các kỹ năng sinh viên ĐÃ CÓ trong CV để không yêu cầu học lại kiến thức quá cơ bản; tập trung vào KHOẢNG TRỐNG NĂNG LỰC và CÁC NHIỆM VỤ THỰC CHIẾN NÂNG CAO.
-3. NẾU LÀM MỚI LỘ TRÌNH (isRegenerate = true): Đưa ra 3 Cột mốc với tên vai trò, trọng tâm và danh sách task hoàn toàn mới mẻ, mang tính đột phá và ứng dụng công nghệ/AI thực tế trong ngành.
-
 === YÊU CẦU ĐẦU RA ===
 Trả về DUY NHẤT một chuỗi JSON hợp lệ theo schema sau (không kèm bất kỳ văn bản nào ngoài JSON):
 {
   "matchScore": 82,
-  "analysisSummary": "Tóm tắt 2 câu đánh giá mức độ đáp ứng của CV hiện tại và chiến lược đột phá tiếp theo.",
+  "analysisSummary": "Tóm tắt 2 câu đánh giá mức độ đáp ứng của CV/hồ sơ hiện tại so với JD mục tiêu và chiến lược bứt phá tiếp theo.",
   "missingSkills": ["Kỹ năng khuyết thiếu 1", "Kỹ năng khuyết thiếu 2", "Kỹ năng khuyết thiếu 3"],
-  "acquiredSkillsFromCv": ["Kỹ năng đã có từ CV 1", "Kỹ năng đã có từ CV 2"],
+  "acquiredSkillsFromCv": ["Kỹ năng đã có 1", "Kỹ năng đã có 2"],
   "customTasks": [
     { "title": "Nhiệm vụ thực tế 1", "priority": "high", "deadline": "Trong 2 tuần", "description": "Mô tả hành động cụ thể" },
-    { "title": "Nhiệm vụ thực tế 2", "priority": "high", "deadline": "Tháng tới", "description": "Mô tả hành động cụ thể" },
-    { "title": "Nhiệm vụ thực tế 3", "priority": "medium", "deadline": "Trước khi nộp đơn", "description": "Mô tả hành động cụ thể" }
+    { "title": "Nhiệm vụ thực tế 2", "priority": "high", "deadline": "Tháng tới", "description": "Mô tả hành động cụ thể" }
   ],
   "suggestedMilestones": [
     {
       "milestoneNumber": 1,
-      "roleTitle": "Tên vai trò Cột mốc 1",
+      "roleTitle": "Tên vai trò Cột mốc 1 (Entry-level / CTV / Nền tảng)",
       "badgeLabel": "Entry-Level • CTV / Dự án thử nghiệm",
       "keyFocus": "Trọng tâm giai đoạn 1",
       "practicalTasks": [
@@ -363,7 +380,7 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo schema sau (không kèm
     },
     {
       "milestoneNumber": 2,
-      "roleTitle": "Tên vai trò Cột mốc 2",
+      "roleTitle": "Tên vai trò Cột mốc 2 (Intern / Fresher / Tăng tốc thực chiến)",
       "badgeLabel": "Core Execution • Thực tập sinh Intern",
       "keyFocus": "Trọng tâm giai đoạn 2",
       "practicalTasks": [
@@ -374,50 +391,93 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo schema sau (không kèm
     },
     {
       "milestoneNumber": 3,
-      "roleTitle": "Tên vai trò Cột mốc 3",
-      "badgeLabel": "Junior / Official • Chuyên viên thực chiến",
-      "keyFocus": "Trọng tâm giai đoạn 3",
+      "roleTitle": "${targetJob.title}",
+      "badgeLabel": "🎯 JD Mục tiêu • ${targetJob.company}",
+      "keyFocus": "Vị trí mục tiêu chính thức tại ${targetJob.company}",
       "practicalTasks": [
-        { "title": "Tên task 5", "deadline": "3 tháng", "priority": "high" },
-        { "title": "Tên task 6", "deadline": "4 tháng", "priority": "medium" }
+        { "title": "Hoàn thiện hồ sơ CV & Portfolio làm nổi bật các dự án khớp với JD ${targetJob.title}", "deadline": "3 tháng", "priority": "high" },
+        { "title": "Luyện tập phỏng vấn tình huống nghiệp vụ và văn hóa doanh nghiệp ${targetJob.company}", "deadline": "4 tháng", "priority": "high" }
       ],
-      "requiredSkills": ["Kỹ năng E", "Kỹ năng F"]
+      "requiredSkills": ${(targetJob.requiredSkills || targetJob.skillTags || []).length > 0 ? JSON.stringify((targetJob.requiredSkills || targetJob.skillTags || []).slice(0, 4)) : '["Kỹ năng chuyên môn", "Giao tiếp"]'}
     }
   ],
   "suggestedEvents": ["event-id-phù-hợp-nhất"],
-  "coreAdvice": "Lời khuyên chiến lược cho sinh viên PTIT"
+  "coreAdvice": "Lời khuyên chiến lược cho sinh viên PTIT để chạm tới vị trí mục tiêu"
 }`;
 
     const rawJson = await callGeminiWithFallback(prompt);
     const cleaned = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleaned);
 
-    // Normalize keys
-    parsed.aiSummary = parsed.analysisSummary || parsed.aiSummary || 'Đối chiếu năng lực sinh viên với yêu cầu JD.';
+    // Normalize keys and ensure Milestone 3 is ALWAYS the targetJob
+    parsed.aiSummary = parsed.analysisSummary || parsed.aiSummary || 'Đối chiếu năng lực sinh viên với yêu cầu JD mục tiêu.';
     parsed.gapSkills = parsed.missingSkills || parsed.gapSkills || [];
     parsed.recommendedEventIds = parsed.suggestedEvents || parsed.recommendedEventIds || [];
 
+    if (Array.isArray(parsed.suggestedMilestones) && parsed.suggestedMilestones.length === 3) {
+      parsed.suggestedMilestones[2].roleTitle = targetJob.title;
+      parsed.suggestedMilestones[2].badgeLabel = `🎯 JD Mục tiêu • ${targetJob.company}`;
+      parsed.suggestedMilestones[2].milestoneNumber = 3;
+    }
+
     res.json({ success: true, data: parsed });
   } catch (error: any) {
-    console.warn('Gemini API error in /api/gemini/career-gap-analysis, using intelligent PTIT engine:', error?.message);
-    const required = Array.isArray(req.body?.targetJob?.requiredSkills)
-      ? req.body.targetJob.requiredSkills
-      : [];
-    const topGaps = required.slice(0, 3);
-    const jobTitle = req.body?.targetJob?.title || 'Mục tiêu';
-    const company = req.body?.targetJob?.company || 'Doanh nghiệp đối tác PTIT';
-    const major = req.body?.userProfile?.major || 'Khối ngành Kinh tế PTIT';
+    console.log('[Info] Fallback to intelligent PTIT career engine:', error?.message?.slice(0, 100));
+    const cvData = req.body?.cvData;
+    const userProfile = req.body?.userProfile;
+    const targetJob = req.body?.targetJob;
     const isRegen = Boolean(req.body?.isRegenerate);
+    const jobTitle = targetJob?.title || 'Chuyên viên Marketing số';
+    const company = targetJob?.company || 'Doanh nghiệp mục tiêu';
+    const major = userProfile?.major || 'Marketing';
 
-    const match = isRegen ? 88 : 78;
+    const cvSkills = [
+      ...(Array.isArray(cvData?.skills) ? cvData.skills.map((s: any) => (typeof s === 'string' ? s : s.name)) : []),
+      ...(Array.isArray(cvData?.skills?.hardSkills) ? cvData.skills.hardSkills : []),
+      ...(Array.isArray(cvData?.skills?.softSkills) ? cvData.skills.softSkills : []),
+    ].filter(Boolean);
+    const cvExps = Array.isArray(cvData?.experiences) ? cvData.experiences : [];
+
+    const required = Array.isArray(targetJob?.requiredSkills) && targetJob.requiredSkills.length > 0
+      ? targetJob.requiredSkills
+      : Array.isArray(targetJob?.skillTags) && targetJob.skillTags.length > 0
+      ? targetJob.skillTags
+      : ['Kỹ năng chuyên môn', 'Làm việc nhóm', 'Tin học văn phòng'];
+
+    const matchedSkills = required.filter((reqSkill: string) =>
+      cvSkills.some((cvSk: string) =>
+        cvSk.toLowerCase().includes(reqSkill.toLowerCase()) || reqSkill.toLowerCase().includes(cvSk.toLowerCase())
+      )
+    );
+    const missingSkills = required.filter((reqSkill: string) =>
+      !cvSkills.some((cvSk: string) =>
+        cvSk.toLowerCase().includes(reqSkill.toLowerCase()) || reqSkill.toLowerCase().includes(cvSk.toLowerCase())
+      )
+    );
+
+    const skillScore = required.length > 0 ? (matchedSkills.length / required.length) * 65 : 45;
+    const expScore = Math.min(cvExps.length * 8, 20);
+    const calculatedMatch = Math.min(95, Math.max(35, Math.round(skillScore + expScore + (cvData ? 10 : 0))));
+    const topGaps = missingSkills.length > 0 ? missingSkills : required.slice(0, 3);
+
+    // Intelligent PTIT milestone generator customized per targetJob
+    const m1Title = isRegen
+      ? `CTV Hỗ trợ Dự án & Phát triển Nền tảng (Associate Assistant)`
+      : `Cộng tác viên Nhập môn & Nền tảng (Entry Support)`;
+    const m2Title = isRegen
+      ? `Thực tập sinh Thực chiến Bứt phá (Advanced Intern / Project Specialist)`
+      : `Thực tập sinh Chuyên môn (Core Trainee)`;
+
     res.json({
       success: true,
       data: {
-        matchScore: match,
-        analysisSummary: `Dựa trên CV và hồ sơ sinh viên ngành ${major}, bạn đã đạt khoảng ${match}% yêu cầu cho vị trí ${jobTitle} tại ${company}. Cần tập trung giải quyết các khoảng trống kỹ năng thực chiến để tối đa cơ hội trúng tuyển.`,
-        missingSkills: topGaps.length > 0 ? topGaps : ['Google Analytics 4', 'A/B Testing', 'Power BI'],
-        gapSkills: topGaps.length > 0 ? topGaps : ['Google Analytics 4', 'A/B Testing', 'Power BI'],
-        acquiredSkillsFromCv: ['Canva', 'Tin học văn phòng', 'Kỹ năng giao tiếp'],
+        matchScore: calculatedMatch,
+        analysisSummary: cvData
+          ? `Dựa trên file CV đã nạp (${cvSkills.length} kỹ năng, ${cvExps.length} kinh nghiệm/dự án), bạn đã đáp ứng khoảng ${calculatedMatch}% yêu cầu cho vị trí ${jobTitle} tại ${company}. Lộ trình Cột mốc 1 và 2 đã được điều chỉnh để chuẩn bị tối đa cho bạn chạm tới Cột mốc 3.`
+          : `Dựa trên thông tin ngành ${major} (${userProfile?.academicYear || 'Năm 3'}), AI đã xây dựng lộ trình từng bước (Cột mốc 1 và 2) để bạn tích lũy đầy đủ năng lực cho vị trí mục tiêu ${jobTitle} tại ${company}.`,
+        missingSkills: topGaps,
+        gapSkills: topGaps,
+        acquiredSkillsFromCv: matchedSkills.length > 0 ? matchedSkills : cvSkills.slice(0, 3),
         customTasks: [
           {
             title: isRegen
@@ -433,16 +493,73 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo schema sau (không kèm
             deadline: 'Tháng này',
             description: 'Giúp hồ sơ vượt qua vòng quét ATS của nhà tuyển dụng',
           },
+        ],
+        suggestedMilestones: [
           {
-            title: `Luyện tập 10 câu hỏi phỏng vấn tình huống đặc thù cho vị trí ${jobTitle}`,
-            priority: 'medium',
-            deadline: 'Trước khi nộp đơn',
-            description: 'Chuẩn bị câu trả lời theo cấu trúc STAR về các dự án đã làm',
+            milestoneNumber: 1,
+            roleTitle: m1Title,
+            badgeLabel: 'Entry-Level • CTV / Dự án thử nghiệm',
+            keyFocus: `Nắm vững công cụ nền tảng và văn hóa làm việc, hoàn thành các bài tập nghiệp vụ cơ sở cho ${jobTitle}`,
+            practicalTasks: [
+              {
+                title: isRegen
+                  ? `Khảo sát thực địa và lập báo cáo nghiên cứu đối thủ của ${company}`
+                  : `Nghiên cứu bộ công cụ căn bản và chuẩn hóa quy trình làm việc`,
+                deadline: '2 tuần',
+                priority: 'high',
+              },
+              {
+                title: `Thực hành 3 bài tập mô phỏng kỹ năng ${topGaps[0] || 'cốt lõi'} theo tiêu chuẩn của ngành ${major}`,
+                deadline: '3 tuần',
+                priority: 'medium',
+              },
+            ],
+            requiredSkills: topGaps.slice(0, 2),
+          },
+          {
+            milestoneNumber: 2,
+            roleTitle: m2Title,
+            badgeLabel: 'Core Execution • Thực tập sinh Intern',
+            keyFocus: `Tham gia trực tiếp dự án thực tế, cọ xát nghiệp vụ giải quyết bài toán của doanh nghiệp`,
+            practicalTasks: [
+              {
+                title: isRegen
+                  ? `Chủ động triển khai mini-project áp dụng công nghệ mới giải quyết yêu cầu ${topGaps[1] || 'thực chiến'}`
+                  : `Tham gia trực tiếp quy trình triển khai công việc thực tế tại doanh nghiệp`,
+                deadline: '1 tháng',
+                priority: 'high',
+              },
+              {
+                title: `Đo lường hiệu quả công việc và lập báo cáo tiến độ định kỳ`,
+                deadline: '6 tuần',
+                priority: 'high',
+              },
+            ],
+            requiredSkills: topGaps.slice(1, 3),
+          },
+          {
+            milestoneNumber: 3,
+            roleTitle: jobTitle,
+            badgeLabel: `🎯 JD Mục tiêu • ${company}`,
+            keyFocus: `Vị trí mục tiêu tuyển dụng chính thức bạn đang hướng tới tại ${company}`,
+            practicalTasks: [
+              {
+                title: `Hoàn thiện hồ sơ CV & Portfolio làm nổi bật các dự án khớp với JD ${jobTitle}`,
+                deadline: '3 tháng',
+                priority: 'high',
+              },
+              {
+                title: `Luyện tập phỏng vấn tình huống nghiệp vụ và văn hóa doanh nghiệp ${company}`,
+                deadline: '4 tháng',
+                priority: 'high',
+              },
+            ],
+            requiredSkills: required.slice(0, 4),
           },
         ],
         suggestedEvents: ['event-1', 'event-2'],
         recommendedEventIds: ['event-1', 'event-2'],
-        coreAdvice: 'Hoàn thiện các nhiệm vụ thực chiến và tham gia Workshop doanh nghiệp để được ưu tiên xét hồ sơ.',
+        coreAdvice: `Hoàn thiện các nhiệm vụ thực chiến ở Cột mốc 1 và 2 để tự tin trúng tuyển vị trí ${jobTitle} tại ${company}.`,
       },
     });
   }
